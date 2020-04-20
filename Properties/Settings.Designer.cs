@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace binarydotcomanalyzer.Properties
+namespace alpairdotcomextractor.Properties
 {
 
 

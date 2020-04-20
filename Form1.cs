@@ -8,116 +8,99 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-//using System.Net.WebSockets;
 using System.Net;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.IO;
 using WebSocket4Net;
 
-namespace binarydotcomanalyzer
+using alpairdotcomextractor.models;
+
+namespace alpairdotcomextractor
 {
     public partial class Form1 : Form
     {
-        private const string uri = "wss://alpariforex.org/bo_guest/";
+        private const string webSocketURI = "wss://alpariforex.org/bo_guest/";
+        
+        // Use this offset to convert Unix time into .Net time
+        // private const long InitialUnixDateTicks = 621355968000000000;
         
         private WebSocket ws;
-        private TickItem[] itemsBuffer;
-        private int itemsBottom = 0;
-        private JsonSerializerSettings jsonSettings;
-        private string marketSymbol;
+        //private JsonSerializerSettings jsonSettings;
+        private int requestID;
+        
+        private bool isRunning = false;
+
 
         public Form1()
         {
             InitializeComponent();
-            ws = new WebSocket(uri);
+            ws = new WebSocket(webSocketURI);
             ws.MessageReceived += new EventHandler<MessageReceivedEventArgs>(websocket_MessageReceived);
-            jsonSettings = new JsonSerializerSettings();
-            //jsonSettings.DateParseHandling = DateParseHandling.
-        }
-
-        private void btnStart_Click(object sender, EventArgs e)
-        {
-            if (ticksCount.Value<1)
-            {
-                errorProvider.SetError(ticksCount, "set a non-zero value");
-                return;
-            }
-
-            if (symbolSelector.SelectedItem==null)
-            {
-                errorProvider.SetError(symbolSelector, "Choose on of the symbols");
-                return;
-            }
-
-            btnStart.Enabled = false;
-            panel1.Visible = false;
-            UseWaitCursor = true;
-            progressBar.Value = 0;
-            progressBar.Maximum = (int)ticksCount.Value;
-            progressBar.Visible = true;
-            marketSymbol = symbolSelector.SelectedItem.ToString();
-            string endTickStr = textBoxEndTick.Text.Trim();
-            if (endTickStr.Equals("latest"))
-                getHistory(marketSymbol, (int)ticksCount.Value, -1);
-            else
-            {
-                long endTick;
-                if (long.TryParse(endTickStr, out endTick) && endTick>=0)
-                    getHistory(marketSymbol, (int)ticksCount.Value, endTick);
-                else
-                    errorProvider.SetError(textBoxEndTick, "Invalid tick value");
-            }
+            ws.Closed += new EventHandler(websocket_Closed);
+            //jsonSettings = new JsonSerializerSettings();
         }
         //-------------------------------------------
-        private void analyzeData()
+        private void websocket_Closed()
+        {
+        	btnStartStop.Text = "Start";
+            btnStartStop.Enabled = true;
+        }
+		//-------------------------------------------
+        private void btnStartStop_Click(object sender, EventArgs e)
+        {
+            if (!isRunning) {
+            	btnStartStop.Text = "Stop";
+            	isRunning = true;
+            	openAndReadSocket();
+            }
+            else
+            {
+            	isRunning = false;
+            	btnStartStop.Text = "Wait...";
+            	btnStartStop.Enabled = false;
+            	ws.Close();
+            }
+            
+        }
+        //-------------------------------------------
+        private void displayData(RatesAll rates)
         {
             dataGridView.Rows.Clear();
-            foreach (TickItem tick in itemsBuffer)
+            
+            for (int i=0;i<rates.Data.length;i++)
             {
-                DataGridViewRow row = new DataGridViewRow();
-                dataGridView.Rows.Add(dataGridView.Rows.Count + 1,
-                    tick.Tick.ToString(),
-                    tick.Time.ToString(), tick.Price);
+            	dataGridView.Rows.Add(rates.Data[i][0], rates.Data[i][1]);
             }
-            panel1.Visible = true;
-            btnStart.Enabled = true;
-            UseWaitCursor = false;
-            progressBar.Visible = false;
+            
         }
         //-------------------------------------------
         private void showConnectionError(string msg)
         {
             MessageBox.Show(msg, "Error on connecting");
             Invoke(new Action(() => { 
-                btnStart.Enabled = true;
+                btnStartStopStop.Text = "Start";
                 UseWaitCursor = false;
-                progressBar.Visible = false;
             }));
            
         }
         //-----------------------------------
         
-
         private void sendRequest(string data)
         {
 
             while (this.ws.State == WebSocketState.Connecting) { };
             if (this.ws.State != WebSocketState.Open)
             {
-               
-                throw new Exception("Connection is not open.");
-
+                showConnectionError("Connection is not open.");
+                return;
             }
-            else
-            {
-                MessageBox.Show("asdasd");
-            }
-
+           	
             ws.Send(data);
 #if DEBUG
             Console.WriteLine("The request has been sent: ");
             Console.WriteLine(data);
-            Console.WriteLine("\r\n \r\n");
+            Console.WriteLine("\r\n\r\n");
 #endif
         }
         //-----------------------------------
@@ -135,16 +118,36 @@ namespace binarydotcomanalyzer
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11;
             ws.Open();
             while (ws.State == WebSocketState.Connecting) ;
+            
+            requestID = 1;
+            
             #if DEBUG
             Console.WriteLine("The connection is established!\r\n");
-           #endif
+            #endif
         }
         //-----------------------------------
 
-        private async Task getHistory(string symbol, int count, long endTick)
+        private async Task openAndReadSocket()
         {
-            itemsBottom = count-1;
-            itemsBuffer = new TickItem[count];
+            
+            if (txtUsername.Text.Length==0)
+            {
+            	errorProvider.SetError(txtUsername,"Provide your user name");
+            	return;
+            }
+            else
+            	errorProvider.SetError(txtUsername,null);
+            
+            if (txtPassword.Text.Length==0)
+            {
+            	errorProvider.SetError(txtPassword,"Provide your password");
+            	return;
+            }
+            else
+            	errorProvider.SetError(txtPassword,null);
+            	
+            // TODO run HTTP requests(s) to authenticate and get a valid token
+            
             if (ws.State != WebSocketState.Open)
                 ConnectWebsocket();
 
@@ -161,13 +164,13 @@ namespace binarydotcomanalyzer
         }
         //-----------------------------------
 
-        private string generateAuth(string token, long id)
+        private string generateAuth(string token, long instance_id)
         {
             StringBuilder stringBuilder = new StringBuilder();
             JsonTextWriter writer = new JsonTextWriter(new StringWriter(stringBuilder));
             writer.WriteStartObject();
             writer.WritePropertyName("rid");
-            writer.WriteValue(3);
+            writer.WriteValue(requestID++);
             writer.WritePropertyName("action");
             writer.WriteValue("auth");
             writer.WritePropertyName("body");
@@ -183,7 +186,7 @@ namespace binarydotcomanalyzer
             writer.WritePropertyName("timezone_offset");
             writer.WriteValue(10800);
             writer.WritePropertyName("instance_id");
-            writer.WriteValue(id);      
+            writer.WriteValue(instance_id);
             writer.WriteEndObject();
             writer.WriteEndObject();
             writer.WritePropertyName("type");
@@ -195,36 +198,38 @@ namespace binarydotcomanalyzer
        
         }
         
-        static readonly long InitialJavaScriptDateTicks = 621355968000000000;
 
         private void websocket_MessageReceived(object skrewer, MessageReceivedEventArgs eventargs)
-        {
-           
-            HistoryMessage history = JsonConvert.DeserializeObject<HistoryMessage>(eventargs.Message);
-            int count = history.History.Prices.Length;
-            for (int i=1;i<=count;i++)
-                itemsBuffer[i+itemsBottom-count] = new TickItem {
-                    Price = history.History.Prices[i-1],
-                    Tick = history.History.Times[i-1],
-                    Time = new DateTime(InitialJavaScriptDateTicks + 10000000 * history.History.Times[i-1], DateTimeKind.Utc)
-                };
-            itemsBottom -= count;
-
-            // request for rest of them or show the results
-            if (itemsBottom > 0) {
-                Invoke(new Action(() =>
+        {     
+            
+            JObject message = JObject.Parse(eventargs.Message);
+            
+            if (!message.ContainsKey("type"))
+            	return;
+            JToken typeToken = message["type"];
+            if (!"EVENT".Equals(typeToken)
+            	return;
+            	
+            if (!message.ContainsKey("action"))
+            	return;
+            JToken actionToken = message["action"];
+            if (!"rates/all".Equals(actionToken))
+            	return;
+            
+            if (!message.ContainsKey("body"))
+            	return;
+            JToken body = message["body"];
+            if (body==null)
+            	return;
+            	
+           	RatesAll rates = body.ToObject<RatesAll>();
+           	if (rates==null || rates.Data==null)
+           		return;
+           	
+           	Invoke(new Action(() =>
                 {
-                    progressBar.Value += count;
-                }));
-                sendRequest(generateAuth("pe939d733363684f131eb0ae1f98a25be39c55064", 86633458));
-            }
-            else
-                Invoke(new Action(() =>
-                {
-                    progressBar.Visible = false;
-                    analyzeData();
+                    displayData(rates);
                 }
-            ));
         }
 
         private void buttonCopyToClipboard_Click(object sender, EventArgs e)

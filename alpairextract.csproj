@@ -7,8 +7,8 @@
     <ProjectGuid>{7EBDD02E-D275-4F19-99EC-BC13BF2A41ED}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>binarydotcomanalyzer</RootNamespace>
-    <AssemblyName>binarydotcomanalyzer</AssemblyName>
+    <RootNamespace>alpairdotcomextractor</RootNamespace>
+    <AssemblyName>alpairdotcomextractor</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
